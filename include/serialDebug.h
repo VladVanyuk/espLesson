@@ -7,9 +7,9 @@
 #endif
 
 #if (DEBUG == 1) // debug
-#define DEBUG_PRINT(...) Serial.println(__VA_ARGS__)
+#define DEBUG_PRINT(x) Serial.println(x)
 #else
-#define DEBUG_PRINT(...)
+#define DEBUG_PRINT(x)
 #endif
 
 
