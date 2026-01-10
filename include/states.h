@@ -1,0 +1,14 @@
+#ifndef STATES_H
+#define STATES_H
+
+
+enum  StatesEnum{
+  STATE_START = 0,
+  STATE_INIT_PINS, 
+  STATE_SERIAL_INIT,
+  STATE_INIT_FS,
+  STATE_READY,
+  STATE_ERROR
+} ;
+
+#endif // STATES_H
