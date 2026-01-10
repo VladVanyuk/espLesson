@@ -48,11 +48,12 @@ void initPins()
 
 void initSerial()
 {
-#ifdef DEBUG
+#if (DEBUG == 1) 
   Serial.begin(UART_SPD);
   // delay(10);
-  Serial.flush();
+  // Serial.flush();
   Serial.println();
+  
 #endif
 }
 
@@ -73,7 +74,6 @@ void buttonHandler()
 {
   // read the state of the switch into a local variable:
   bool reading = digitalRead(PIN_BUTTON);
-  uint32_t now = millis();
  
   
   if (reading != lastButtonState) {
@@ -122,7 +122,7 @@ void initSerial()
 
 void setup()
 {
-  DEBUG_PRINT("INIT START");
+ // DEBUG_PRINT("INIT START");
 
  
   bool initialized = false;
@@ -166,11 +166,19 @@ void setup()
   }
 
   DEBUG_PRINT("INIT DONE");
+  now = millis();
 }
 
 void loop()
 {
-  
+  static uint32_t lastPrint = 0;
+  now = millis();
   buttonHandler();
   changeRedLedState(ledState);
+
+  if(now - lastPrint > 1000) {
+    DEBUG_PRINT(ledState);
+    lastPrint = now;
+
+  }
 }
