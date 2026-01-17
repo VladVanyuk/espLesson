@@ -19,6 +19,7 @@ uint8_t buttonState;            // the current reading from the input pin
 uint8_t buttonPressed = 0;     // whether the button is pressed
 uint8_t lastButtonState = LOW;  // the previous reading from the input pin
 
+uint16_t adcValue = 0;
 // struct flagsBtnLed
 // {
 //   uint8_t buttonState : 1;
@@ -41,7 +42,7 @@ void initPins()
   pinMode(adc_read_pin, INPUT);
 
   pinMode(led_rgb_pin, OUTPUT);
-  digitalWrite(led_rgb_pin, LOW);
+  digitalWrite(led_rgb_pin, HIGH);
 
   pinMode(red_led_pin, OUTPUT);
   digitalWrite(red_led_pin, LOW);
@@ -61,14 +62,14 @@ void initSerial()
 
 bool changeRedLedState(uint16_t new_val) // 0 - 1023
 {
-  if (new_val && buttonPressed)
+  if (new_val > 20 &&  buttonPressed)
   {
     analogWrite(red_led_pin, new_val / 4); // write pwm duty cycle with new value as 0 - 255 
     return true;
   }
   else
   {
-    digitalWrite(red_led_pin, LOW);
+    analogWrite(red_led_pin, LOW);
   }
   return false;
 }
@@ -121,19 +122,39 @@ void initSerial()
 
 #endif
 
+
 uint16_t adcReadHandler(pin_t pin)
 {
+  static uint32_t lastReadADC = 0;
+ 
   if(!buttonPressed)
   {
     DEBUG_PRINT("ADC read skipped, button not pressed");
     return 0;
   }
 
-
-  uint16_t adcValue = analogRead((uint8_t)pin);
-  DEBUG_PRINT("ADC Value: " + String(adcValue));
+  if(now - lastReadADC > 10)
+  {
+    //uint16_t adcSamples[10] = {};
+    uint16_t adcValueSum = 0;
+    for (int i = 0; i < 10; i++) {
+      adcValue = analogRead((uint8_t)pin);
+      //adcSamples[i] = adcValue;
+      adcValueSum += adcValue;
+    }
+    adcValue = adcValueSum / 10;
+    // uint16_t adcValue = 0;
+    // for (int i = 0; i < 10; i++) {
+    //   adcValue += adcSamples[i];
+    // }
+    // adcValue /= 10;
+    lastReadADC = now;
+    DEBUG_PRINT("ADC Value: " + String(adcValue));
+    return adcValue;
+  }
   return adcValue;
 }
+
 
 void setup()
 {
@@ -182,6 +203,7 @@ void setup()
   DEBUG_PRINT("INIT DONE");
   now = millis();
 }
+
 
 void loop()
 {
