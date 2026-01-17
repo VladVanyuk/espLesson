@@ -15,8 +15,8 @@ uint8_t state = STATE_START;
 uint32_t now = 0;
  
 // // Variables will change:
-uint8_t ledState = HIGH;        // the current state of the output pin
 uint8_t buttonState;            // the current reading from the input pin
+uint8_t buttonPressed = 0;     // whether the button is pressed
 uint8_t lastButtonState = LOW;  // the previous reading from the input pin
 
 // struct flagsBtnLed
@@ -37,13 +37,14 @@ uint32_t debounceDelay = 50;    // the debounce time; increase if the output fli
 
 void initPins()
 {
-  pinMode(PIN_BUTTON, INPUT);
+  pinMode(button_pin, INPUT);
+  pinMode(adc_read_pin, INPUT);
 
-  pinMode(PIN_LED_RGB, OUTPUT);
-  digitalWrite(PIN_LED_RGB, LOW);
+  pinMode(led_rgb_pin, OUTPUT);
+  digitalWrite(led_rgb_pin, LOW);
 
-  pinMode(PIN_LED_RED, OUTPUT);
-  digitalWrite(PIN_LED_RED, LOW);
+  pinMode(red_led_pin, OUTPUT);
+  digitalWrite(red_led_pin, LOW);
 }
 
 void initSerial()
@@ -58,24 +59,25 @@ void initSerial()
 }
 
 
-void changeRedLedState(bool state)
+bool changeRedLedState(uint16_t new_val) // 0 - 1023
 {
-  if (state)
+  if (new_val && buttonPressed)
   {
-    digitalWrite(PIN_LED_RED, HIGH);
+    analogWrite(red_led_pin, new_val / 4); // write pwm duty cycle with new value as 0 - 255 
+    return true;
   }
   else
   {
-    digitalWrite(PIN_LED_RED, LOW);
+    digitalWrite(red_led_pin, LOW);
   }
+  return false;
 }
+
 
 void buttonHandler()
 {
   // read the state of the switch into a local variable:
-  bool reading = digitalRead(PIN_BUTTON);
- 
-  
+  bool reading = digitalRead(button_pin);  
   if (reading != lastButtonState) {
     lastDebounceTime = now;
   }
@@ -86,7 +88,7 @@ void buttonHandler()
       buttonState = reading;
 
       if (buttonState == HIGH) {
-        ledState = !ledState;
+        buttonPressed = !buttonPressed;
       }
     }
   }
@@ -119,12 +121,23 @@ void initSerial()
 
 #endif
 
+uint16_t adcReadHandler(pin_t pin)
+{
+  if(!buttonPressed)
+  {
+    DEBUG_PRINT("ADC read skipped, button not pressed");
+    return 0;
+  }
+
+
+  uint16_t adcValue = analogRead((uint8_t)pin);
+  DEBUG_PRINT("ADC Value: " + String(adcValue));
+  return adcValue;
+}
 
 void setup()
 {
- // DEBUG_PRINT("INIT START");
 
- 
   bool initialized = false;
   while (!initialized)
   {
@@ -148,7 +161,8 @@ void setup()
     case STATE_INIT_FS:
       DEBUG_PRINT("State is 1");
       state = STATE_READY;
-      break;
+      break; 
+      //TODO addc web fS init
     case STATE_READY:
       DEBUG_PRINT("State is 2");
       initialized = true;
@@ -173,12 +187,23 @@ void loop()
 {
   static uint32_t lastPrint = 0;
   now = millis();
+
   buttonHandler();
-  changeRedLedState(ledState);
+  uint16_t adcValue = adcReadHandler(adc_read_pin);
+  bool status = changeRedLedState(adcValue);
 
+#if (DEBUG == 1) 
   if(now - lastPrint > 1000) {
-    DEBUG_PRINT(ledState);
-    lastPrint = now;
+    DEBUG_PRINT("buttonPressed: ");
+    DEBUG_PRINT(buttonPressed);
 
+    DEBUG_PRINT("Led value func status: ");
+    DEBUG_PRINT(status);
+
+    DEBUG_PRINT("ADC Value: ");
+    DEBUG_PRINT(adcValue);
+
+    lastPrint = now;
   }
+#endif
 }
