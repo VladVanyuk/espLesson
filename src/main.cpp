@@ -2,6 +2,9 @@
 #define ESP_IDF_CONFIG 0
 #endif
 
+
+
+
 #if (ESP_IDF_CONFIG == 0)
 #include <Arduino.h>
 #elif (ESP_IDF_CONFIG == 1)
@@ -15,9 +18,39 @@ uint8_t state = STATE_START;
 uint32_t now = 0;
  
 // // Variables will change:
-uint8_t buttonState;            // the current reading from the input pin
-uint8_t buttonPressed = 0;     // whether the button is pressed
-uint8_t lastButtonState = LOW;  // the previous reading from the input pin
+
+typedef struct {
+  uint8_t buttonState;
+  uint8_t buttonPressed;
+  uint8_t lastButtonState;
+  uint8_t selfPin;
+  uint32_t lastDebounceTime;
+  uint32_t debounceDelay;
+ ButtonControl *next;
+} ButtonControl;
+
+
+ButtonControl btnPower = { //btn2
+  .buttonState = 0,
+  .buttonPressed = 0,
+  .lastButtonState = LOW,
+  .selfPin = button_pin,
+  .lastDebounceTime = 0,
+  .debounceDelay = 50,
+ .next = nullptr
+};
+
+
+// ButtonControl btn1 = {
+//   .buttonState = 0,
+//   .buttonPressed = 0,
+//   .lastButtonState = LOW,
+//   .selfPin = button_pin,
+//   .lastDebounceTime = 0,
+//   .debounceDelay = 50,
+//  .next = &btnPower
+// };
+
 
 uint16_t adcValue = 0;
 // struct flagsBtnLed
@@ -30,8 +63,7 @@ uint16_t adcValue = 0;
 
 // the following variables are unsigned longs because the time, measured in
 // milliseconds, will quickly become a bigger number than can be stored in an int.
-uint32_t lastDebounceTime = 0;  // the last time the output pin was toggled
-uint32_t debounceDelay = 50;    // the debounce time; increase if the output flickers
+
 
 
 #if (ESP_IDF_CONFIG == 0)
@@ -60,9 +92,9 @@ void initSerial()
 }
 
 
-bool changeRedLedState(uint16_t new_val) // 0 - 1023
+bool changePWMState(uint16_t new_val) // 0 - 1023
 {
-  if (new_val > 20 &&  buttonPressed)
+  if (new_val > 20 &&  btnPower.buttonPressed)
   {
     analogWrite(red_led_pin, new_val / 4); // write pwm duty cycle with new value as 0 - 255 
     return true;
@@ -75,28 +107,47 @@ bool changeRedLedState(uint16_t new_val) // 0 - 1023
 }
 
 
-void buttonHandler()
+void buttonHandler(ButtonControl *btn)
 {
+  if(btn == nullptr) return;
+
+  ButtonControl *firstBtn = btn;
+
+  do
+  {
+    /* code */
+  
+  
+
   // read the state of the switch into a local variable:
-  bool reading = digitalRead(button_pin);  
-  if (reading != lastButtonState) {
-    lastDebounceTime = now;
+  bool reading = digitalRead(btn->selfPin);  
+  if (reading != btn->lastButtonState) {
+    btn->lastDebounceTime = now;
   }
 
-  if ((now - lastDebounceTime) > debounceDelay) {
+  if ((now - btn->lastDebounceTime) > btn->debounceDelay) {
    
-    if (reading != buttonState) {
-      buttonState = reading;
+    if (reading != btn->buttonState) {
+      btn->buttonState = reading;
 
-      if (buttonState == HIGH) {
-        buttonPressed = !buttonPressed;
+      if (btn->buttonState == HIGH) {
+        btn->buttonPressed = !btn->buttonPressed;
       }
     }
   }
 
 
   // save the reading. Next time through the loop, it'll be the lastButtonState:
-  lastButtonState = reading;
+  btn->lastButtonState = reading;
+
+  if(btn->next == nullptr)
+    btn = firstBtn;
+  else
+    btn = btn->next;
+  
+  } while  (btn != nullptr && btn->next != nullptr);
+
+  
 }
 
 
@@ -127,7 +178,7 @@ uint16_t adcReadHandler(pin_t pin)
 {
   static uint32_t lastReadADC = 0;
  
-  if(!buttonPressed)
+  if(!(btnPower.buttonPressed))
   {
     DEBUG_PRINT("ADC read skipped, button not pressed");
     return 0;
@@ -205,19 +256,13 @@ void setup()
 }
 
 
-void loop()
+void debugPrintHandler(bool status = false, uint16_t adcValue = 0)
 {
-  static uint32_t lastPrint = 0;
-  now = millis();
-
-  buttonHandler();
-  uint16_t adcValue = adcReadHandler(adc_read_pin);
-  bool status = changeRedLedState(adcValue);
-
 #if (DEBUG == 1) 
-  if(now - lastPrint > 1000) {
+  static uint32_t lastPrint = 0;
+  if(now - lastPrint > 1000) { // todo make time in variable or in define 
     DEBUG_PRINT("buttonPressed: ");
-    DEBUG_PRINT(buttonPressed);
+    DEBUG_PRINT(btnPower.buttonPressed);
 
     DEBUG_PRINT("Led value func status: ");
     DEBUG_PRINT(status);
@@ -227,5 +272,27 @@ void loop()
 
     lastPrint = now;
   }
-#endif
+#endif 
 }
+
+void loop()
+{
+  now = millis();
+  buttonHandler(&btnPower); // 1
+  uint16_t adcValue = adcReadHandler(adc_read_pin); // 2
+  bool status = changePWMState(adcValue); // 3
+  debugPrintHandler(status, adcValue); // 4
+
+}
+
+
+
+/*
+
+1) sensor
+2) button
+3) wifi control = server + cmd client
+4) mqtt 
+5) telegram bot 
+
+*/
