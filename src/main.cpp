@@ -10,9 +10,14 @@
 #elif (ESP_IDF_CONFIG == 1)
 #endif
 
+#include <LittleFS.h>
+
 #include "pinsSetup.h"
 #include "serialDebug.h"
 #include "states.h"
+
+#define FORMAT_LITTLEFS_IF_FAILED true
+
 
 uint8_t state = STATE_START;
 uint32_t now = 0;
@@ -39,6 +44,7 @@ ButtonControl btnPower = { //btn2
   .debounceDelay = 50,
  .next = nullptr
 };
+
 
 
 // ButtonControl btn1 = {
@@ -232,9 +238,30 @@ void setup()
 
     case STATE_INIT_FS:
       DEBUG_PRINT("State is 1");
-      state = STATE_READY;
+      if (!LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED)) {
+        DEBUG_PRINT("LittleFS Mount Failed");
+        state = STATE_ERROR;
+      }
+      else 
+      {
+        DEBUG_PRINT("LittleFS Mount OK");
+         state = STATE_READ_FS_CONFIG;
+      }
       break; 
       //TODO addc web fS init
+
+    case STATE_READ_FS_CONFIG:
+      DEBUG_PRINT("Reading FS Config file");
+      //! VALUE VERSIUON IS NOT INT VALUE
+      File f1 = LittleFS.open("/config.json", "r");
+      //to do add if statement for creating default config file
+      if(f1)
+      {
+        f1.close();
+      }
+      state = STATE_READY;
+      break;
+      
     case STATE_READY:
       DEBUG_PRINT("State is 2");
       initialized = true;
