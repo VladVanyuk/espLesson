@@ -7,18 +7,21 @@
 #elif (ESP_IDF_CONFIG == 1)
 #endif
 
+#include <LittleFS.h>
+
 #include "pinsSetup.h"
 #include "serialDebug.h"
 #include "states.h"
+#include "btn.h"
 
-uint8_t state = STATE_START;
+#define FORMAT_LITTLEFS_IF_FAILED true
+
+uint8_t state = STATE_START; // or add volatile ++ isr change
 uint32_t now = 0;
- 
-// // Variables will change:
-uint8_t ledState = HIGH;        // the current state of the output pin
-uint8_t buttonState;            // the current reading from the input pin
-uint8_t lastButtonState = LOW;  // the previous reading from the input pin
 
+// // Variables will change:
+
+uint16_t adcValue = 0;
 // struct flagsBtnLed
 // {
 //   uint8_t buttonState : 1;
@@ -26,76 +29,58 @@ uint8_t lastButtonState = LOW;  // the previous reading from the input pin
 //   uint8_t lastButtonState : 1;
 // };
 
-
 // the following variables are unsigned longs because the time, measured in
 // milliseconds, will quickly become a bigger number than can be stored in an int.
-uint32_t lastDebounceTime = 0;  // the last time the output pin was toggled
-uint32_t debounceDelay = 50;    // the debounce time; increase if the output flickers
-
 
 #if (ESP_IDF_CONFIG == 0)
 
 void initPins()
 {
-  pinMode(PIN_BUTTON, INPUT);
+  pinMode(button_pin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(button_pin), isrButtonPressSetup, FALLING);
 
-  pinMode(PIN_LED_RGB, OUTPUT);
-  digitalWrite(PIN_LED_RGB, LOW);
 
-  pinMode(PIN_LED_RED, OUTPUT);
-  digitalWrite(PIN_LED_RED, LOW);
+  pinMode(adc_read_pin, INPUT);
+
+  pinMode(led_rgb_pin, OUTPUT);
+  digitalWrite(led_rgb_pin, HIGH);
+
+  pinMode(red_led_pin, OUTPUT);
+  digitalWrite(red_led_pin, LOW);
+}
+
+void initInterrupts()
+{
+  if (!setupInterruptFlag)
+  {
+    attachInterrupt(digitalPinToInterrupt(button_pin), isrButtonPress, FALLING);
+  }
 }
 
 void initSerial()
 {
-#if (DEBUG == 1) 
+#if (DEBUG == 1)
   Serial.begin(UART_SPD);
   // delay(10);
   // Serial.flush();
   Serial.println();
-  
+
 #endif
 }
 
-
-void changeRedLedState(bool state)
+bool changePWMState(uint16_t new_val) // 0 - 1023
 {
-  if (state)
+  if (new_val > 20 && btnPower.buttonPressed)
   {
-    digitalWrite(PIN_LED_RED, HIGH);
+    analogWrite(red_led_pin, new_val / 4); // write pwm duty cycle with new value as 0 - 255
+    return true;
   }
   else
   {
-    digitalWrite(PIN_LED_RED, LOW);
+    analogWrite(red_led_pin, LOW);
   }
+  return false;
 }
-
-void buttonHandler()
-{
-  // read the state of the switch into a local variable:
-  bool reading = digitalRead(PIN_BUTTON);
- 
-  
-  if (reading != lastButtonState) {
-    lastDebounceTime = now;
-  }
-
-  if ((now - lastDebounceTime) > debounceDelay) {
-   
-    if (reading != buttonState) {
-      buttonState = reading;
-
-      if (buttonState == HIGH) {
-        ledState = !ledState;
-      }
-    }
-  }
-
-
-  // save the reading. Next time through the loop, it'll be the lastButtonState:
-  lastButtonState = reading;
-}
-
 
 #elif (ESP_IDF_CONFIG == 1)
 
@@ -119,18 +104,47 @@ void initSerial()
 
 #endif
 
+uint16_t adcReadHandler(pin_t pin)
+{
+  static uint32_t lastReadADC = 0;
+
+  if (!(btnPower.buttonPressed))
+  {
+    DEBUG_PRINT("ADC read skipped, button not pressed");
+    return 0;
+  }
+
+  if (now - lastReadADC > 10)
+  {
+    // uint16_t adcSamples[10] = {};
+    uint16_t adcValueSum = 0;
+    for (int i = 0; i < 10; i++)
+    {
+      adcValue = analogRead((uint8_t)pin);
+      // adcSamples[i] = adcValue;
+      adcValueSum += adcValue;
+    }
+    adcValue = adcValueSum / 10;
+    // uint16_t adcValue = 0;
+    // for (int i = 0; i < 10; i++) {
+    //   adcValue += adcSamples[i];
+    // }
+    // adcValue /= 10;
+    lastReadADC = now;
+    DEBUG_PRINT("ADC Value: " + String(adcValue));
+    return adcValue;
+  }
+  return adcValue;
+}
 
 void setup()
 {
- // DEBUG_PRINT("INIT START");
 
- 
   bool initialized = false;
   while (!initialized)
   {
     switch (state)
     {
-
     case STATE_START:
       state = STATE_INIT_PINS;
       break;
@@ -147,8 +161,36 @@ void setup()
 
     case STATE_INIT_FS:
       DEBUG_PRINT("State is 1");
+      if (!LittleFS.begin(FORMAT_LITTLEFS_IF_FAILED))
+      {
+        DEBUG_PRINT("LittleFS Mount Failed");
+        state = STATE_ERROR;
+      }
+      else
+      {
+        DEBUG_PRINT("LittleFS Mount OK");
+        state = STATE_READ_FS_CONFIG;
+      }
+      break;
+      // TODO addc web fS init
+
+    case STATE_READ_FS_CONFIG:
+      DEBUG_PRINT("Reading FS Config file");
+      //! VALUE VERSIUON IS NOT INT VALUE
+      // File f1 = LittleFS.open("/config.json", "r");
+      // to do add if statement for creating default config file
+      // if (f1)
+      // {
+      //   f1.close();
+      //}
       state = STATE_READY;
       break;
+
+    case STATE_ATTACH_INTERRUPTS:
+      initInterrupts();
+      state = STATE_READY;
+      break;
+
     case STATE_READY:
       DEBUG_PRINT("State is 2");
       initialized = true;
@@ -163,22 +205,53 @@ void setup()
       DEBUG_PRINT("Unknown State");
       break;
     }
+
+    if (setupInterruptFlag && !initialized)
+    {
+      state = STATE_READY;
+    }
   }
 
   DEBUG_PRINT("INIT DONE");
   now = millis();
 }
 
+void debugPrintHandler(bool status = false, uint16_t adcValue = 0)
+{
+#if (DEBUG == 1)
+  static uint32_t lastPrint = 0;
+  if (now - lastPrint > 1000)
+  { // todo make time in variable or in define
+    DEBUG_PRINT("buttonPressed: ");
+    DEBUG_PRINT(btnPower.buttonPressed);
+
+    DEBUG_PRINT("Led value func status: ");
+    DEBUG_PRINT(status);
+
+    DEBUG_PRINT("ADC Value: ");
+    DEBUG_PRINT(adcValue);
+
+    lastPrint = now;
+  }
+#endif
+}
+
 void loop()
 {
-  static uint32_t lastPrint = 0;
+
   now = millis();
-  buttonHandler();
-  changeRedLedState(ledState);
-
-  if(now - lastPrint > 1000) {
-    DEBUG_PRINT(ledState);
-    lastPrint = now;
-
-  }
+  buttonHandler(lastTimeInterrupt, &btnPower);      // 1
+  uint16_t adcValue = adcReadHandler(adc_read_pin); // 2
+  bool status = changePWMState(adcValue);           // 3
+  debugPrintHandler(status, adcValue);              // 4
 }
+
+/*
+
+1) sensor
+2) button
+3) wifi control = server + cmd client
+4) mqtt
+5) telegram bot
+
+*/
